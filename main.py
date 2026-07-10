@@ -24,6 +24,7 @@ def main():
     ontology_config = config["ontology"]
     ontology_limits = config["ontology_limits"]
     generation_config = config.get("generation", {})
+    execution_config = config.get("execution", {})
 
     print("Mode config :", config["_mode"])
 
@@ -40,6 +41,7 @@ def main():
     tokenizer, model = load_qwen_model(
         model_config["name"],
         load_in_4bit=model_config.get("load_in_4bit", False),
+        offline=execution_config.get("offline", False),
     )
 
     summary = run_categories(
