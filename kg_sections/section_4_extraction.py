@@ -68,6 +68,10 @@ def process_category(
     tokenizer,
     model,
     allow_fallback_ontology=False,
+    force_regenerate_ontology=False,
+    ontology_max_new_tokens=2200,
+    ontology_limits=None,
+    deterministic_generation=True,
 ):
     category_df = df[df["category_id"] == category_id].reset_index(drop=True)
     if len(category_df) == 0:
@@ -82,7 +86,11 @@ def process_category(
         onto_dir,
         tokenizer,
         model,
+        force=force_regenerate_ontology,
         allow_fallback=allow_fallback_ontology,
+        max_new_tokens=ontology_max_new_tokens,
+        ontology_limits=ontology_limits,
+        deterministic=deterministic_generation,
     )
     category_prompt = build_extraction_prompt(ontology)
 
@@ -93,7 +101,12 @@ def process_category(
 
     for _, row in tqdm(work.iterrows(), total=len(work), desc=f"cat {category_id}", leave=False):
         product = product_from_row(row)
-        raw = ask_qwen(generate_product_prompt(category_prompt, product), tokenizer, model)
+        raw = ask_qwen(
+            generate_product_prompt(category_prompt, product),
+            tokenizer,
+            model,
+            deterministic=deterministic_generation,
+        )
 
         try:
             merge_fragment(extract_json(raw), row["asin"], nodes, edges)
@@ -134,6 +147,10 @@ def run_categories(
     tokenizer,
     model,
     allow_fallback_ontology=False,
+    force_regenerate_ontology=False,
+    ontology_max_new_tokens=2200,
+    ontology_limits=None,
+    deterministic_generation=True,
 ):
     summary = []
 
@@ -154,6 +171,10 @@ def run_categories(
                 tokenizer,
                 model,
                 allow_fallback_ontology=allow_fallback_ontology,
+                force_regenerate_ontology=force_regenerate_ontology,
+                ontology_max_new_tokens=ontology_max_new_tokens,
+                ontology_limits=ontology_limits,
+                deterministic_generation=deterministic_generation,
             )
             if result:
                 summary.append(

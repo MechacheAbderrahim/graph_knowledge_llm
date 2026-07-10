@@ -5,7 +5,29 @@ from copy import deepcopy
 from pathlib import Path
 
 
-META_PROMPT = """You are an ontology designer for e-commerce product knowledge graphs.
+DEFAULT_ONTOLOGY_LIMITS = {
+    "max_classes": 3,
+    "max_object_properties": 8,
+    "max_data_properties": 5,
+    "max_controlled_vocab": 5,
+    "max_vocab_values": 8,
+    "max_rules": 6,
+}
+
+
+def normalize_ontology_limits(ontology_limits=None):
+    limits = DEFAULT_ONTOLOGY_LIMITS.copy()
+    if ontology_limits:
+        for key, value in ontology_limits.items():
+            if value is not None:
+                limits[key] = int(value)
+    return limits
+
+
+def build_meta_prompt(ontology_limits=None):
+    limits = normalize_ontology_limits(ontology_limits)
+
+    return f"""You are an ontology designer for e-commerce product knowledge graphs.
 You receive a category name and a DIVERSE sample of product titles from ONE category.
 Design a compact ontology + extraction rules to turn its products into KG fragments.
 
@@ -19,20 +41,20 @@ You MUST reuse this shared backbone (do NOT rename it) so all categories stay me
   nodes like Unbranded/Unknown/Other -> omit the edge instead.
 
 Then ADD category-specific elements:
-- 1-3 Product subclasses ONLY if the category mixes device vs accessory; else one class.
+- 1-{limits['max_classes']} Product subclasses ONLY if the category mixes device vs accessory; else one class.
 - object properties as PREDICATE (Domain -> Range).
 - data properties (literals on the product).
 - controlled vocabularies (closed lists) for the categorical slots.
-- 4 to 8 short extraction rules.
+- 4 to {limits['max_rules']} short extraction rules.
 
 Output ONLY a JSON object with keys:
-{"category","classes","object_properties","data_properties","controlled_vocab","rules"}
+{{"category","classes","object_properties","data_properties","controlled_vocab","rules"}}
 Keep the JSON compact:
-- maximum 3 classes
-- maximum 8 object_properties
-- maximum 5 data_properties
-- maximum 5 controlled_vocab entries, each with maximum 8 values
-- maximum 6 rules
+- maximum {limits['max_classes']} classes
+- maximum {limits['max_object_properties']} object_properties
+- maximum {limits['max_data_properties']} data_properties
+- maximum {limits['max_controlled_vocab']} controlled_vocab entries, each with maximum {limits['max_vocab_values']} values
+- maximum {limits['max_rules']} rules
 No prose, no code fences."""
 
 REQUIRED_KEYS = {
@@ -131,7 +153,7 @@ def load_qwen_model(model_name, load_in_4bit=False):
     return tokenizer, model
 
 
-def ask_qwen(prompt, tokenizer, model, max_new_tokens=1000):
+def ask_qwen(prompt, tokenizer, model, max_new_tokens=1000, deterministic=True):
     messages = [{"role": "user", "content": prompt}]
 
     try:
@@ -149,11 +171,11 @@ def ask_qwen(prompt, tokenizer, model, max_new_tokens=1000):
         )
 
     inputs = tokenizer([text], return_tensors="pt").to(model_input_device(model))
-    output = model.generate(
-        **inputs,
-        max_new_tokens=max_new_tokens,
-        generation_config=deterministic_generation_config(tokenizer, model),
-    )
+    generation_kwargs = {"max_new_tokens": max_new_tokens}
+    if deterministic:
+        generation_kwargs["generation_config"] = deterministic_generation_config(tokenizer, model)
+
+    output = model.generate(**inputs, **generation_kwargs)
     generated = output[0][inputs.input_ids.shape[1] :]
     return tokenizer.decode(generated, skip_special_tokens=True)
 
@@ -181,14 +203,23 @@ def extract_json(text):
     raise ValueError("JSON non equilibre (tronque -> augmente max_new_tokens)")
 
 
-def design_ontology(category_name, sample_titles, tokenizer, model, max_new_tokens=2200):
+def design_ontology(
+    category_name,
+    sample_titles,
+    tokenizer,
+    model,
+    max_new_tokens=2200,
+    ontology_limits=None,
+    deterministic=True,
+):
     user_prompt = "Category: " + category_name + "\nSample titles:\n"
     user_prompt += "\n".join("- " + title for title in sample_titles)
     raw = ask_qwen(
-        META_PROMPT + "\n\n" + user_prompt,
+        build_meta_prompt(ontology_limits) + "\n\n" + user_prompt,
         tokenizer,
         model,
         max_new_tokens=max_new_tokens,
+        deterministic=deterministic,
     )
     return extract_json(raw)
 
@@ -267,6 +298,9 @@ def get_ontology(
     model,
     force=False,
     allow_fallback=False,
+    max_new_tokens=2200,
+    ontology_limits=None,
+    deterministic=True,
 ):
     path = Path(onto_dir) / f"onto_{category_id}.json"
     if path.exists() and not force:
@@ -276,7 +310,15 @@ def get_ontology(
     last_error = None
     for attempt in range(2):
         try:
-            ontology = design_ontology(category_name, titles, tokenizer, model)
+            ontology = design_ontology(
+                category_name,
+                titles,
+                tokenizer,
+                model,
+                max_new_tokens=max_new_tokens,
+                ontology_limits=ontology_limits,
+                deterministic=deterministic,
+            )
             validate_ontology(ontology)
             with open(path, "w", encoding="utf-8") as file:
                 json.dump(ontology, file, ensure_ascii=False, indent=2)

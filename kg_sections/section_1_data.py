@@ -1,6 +1,42 @@
 from pathlib import Path
+from copy import deepcopy
 
 import pandas as pd
+import yaml
+
+
+def load_config(config_path="config.yaml"):
+    with open(config_path, encoding="utf-8") as file:
+        config = yaml.safe_load(file) or {}
+
+    validate_config(config)
+    return select_active_config(config)
+
+
+def validate_config(config):
+    required_sections = ["paths", "model", "run", "ontology", "ontology_limits", "test"]
+    missing = [section for section in required_sections if section not in config]
+    if missing:
+        raise ValueError(f"sections manquantes dans config.yaml: {missing}")
+
+    test = config.get("test", {})
+    if "enabled" not in test:
+        raise ValueError("config.yaml doit contenir test.enabled")
+
+
+def select_active_config(config):
+    active = deepcopy(config)
+    test = config.get("test", {})
+
+    if test.get("enabled", False):
+        for section in ["model", "run", "ontology", "ontology_limits", "generation"]:
+            if section in test:
+                active[section] = deepcopy(test[section])
+        active["_mode"] = "test"
+    else:
+        active["_mode"] = "main"
+
+    return active
 
 
 def make_output_dirs(onto_dir="ontologies", kg_dir="kg"):

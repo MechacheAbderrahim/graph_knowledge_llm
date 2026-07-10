@@ -1,0 +1,58 @@
+paths:
+  products_csv: "./amazon_products.csv"
+  categories_csv: "./amazon_categories.csv"
+  ontology_dir: "ontologies"
+  kg_dir: "kg"
+  global_kg_path: "kg_global.json"
+
+model:
+  name: "Qwen/Qwen2.5-3B-Instruct"
+  load_in_4bit: false
+
+run:
+  categories: [77, 228, 83, 32]
+  sample_size: 15
+  max_products_per_category: 25
+  seed: 42
+  allow_fallback_ontology: false
+
+ontology:
+  max_new_tokens: 3000
+  force_regenerate: false
+
+ontology_limits:
+  max_classes: 8
+  max_object_properties: 20
+  max_data_properties: 12
+  max_controlled_vocab: 12
+  max_vocab_values: 20
+  max_rules: 12
+
+generation:
+  deterministic: true
+
+test:
+  enabled: false
+
+  model:
+    name: "Qwen/Qwen2.5-0.5B-Instruct"
+    load_in_4bit: false
+
+  run:
+    categories: [77]
+    sample_size: 3
+    max_products_per_category: 2
+    seed: 42
+    allow_fallback_ontology: true
+
+  ontology:
+    max_new_tokens: 1200
+    force_regenerate: true
+
+  ontology_limits:
+    max_classes: 3
+    max_object_properties: 6
+    max_data_properties: 3
+    max_controlled_vocab: 3
+    max_vocab_values: 5
+    max_rules: 4
