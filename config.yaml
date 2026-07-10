@@ -5,6 +5,9 @@ paths:
   kg_dir: "kg"
   global_kg_path: "kg_global.json"
 
+execution:
+  offline: true
+
 model:
   name: "Qwen/Qwen2.5-3B-Instruct"
   load_in_4bit: false
@@ -32,7 +35,7 @@ generation:
   deterministic: true
 
 test:
-  enabled: false
+  enabled: true
 
   model:
     name: "Qwen/Qwen2.5-0.5B-Instruct"

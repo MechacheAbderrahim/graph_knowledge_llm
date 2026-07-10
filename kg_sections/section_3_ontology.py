@@ -14,6 +14,14 @@ DEFAULT_ONTOLOGY_LIMITS = {
     "max_rules": 6,
 }
 
+DEFAULT_MODEL_ROOT = (
+    "/lustre/fsmisc/dataset/HuggingFace_Models/"
+)
+
+def resolve_model_name(model_name, offline=False):
+    if offline:
+        return os.path.join(DEFAULT_MODEL_ROOT, model_name)
+    return model_name
 
 def normalize_ontology_limits(ontology_limits=None):
     limits = DEFAULT_ONTOLOGY_LIMITS.copy()
@@ -107,7 +115,7 @@ def deterministic_generation_config(tokenizer, model):
     return generation_config
 
 
-def load_qwen_model(model_name, load_in_4bit=False):
+def load_qwen_model(model_name, load_in_4bit=False, offline=False):
     os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
     import torch
@@ -121,9 +129,17 @@ def load_qwen_model(model_name, load_in_4bit=False):
         has_accelerate = False
         print("accelerate absent -> installe accelerate puis redemarre le kernel.")
 
+    resolved_model_name = resolve_model_name(model_name, offline=offline)
+    local_files_only = offline
+
     device = get_best_device(torch)
     dtype = dtype_for_device(torch, device)
-    tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    
+    tokenizer = AutoTokenizer.from_pretrained(
+        resolved_model_name,
+        trust_remote_code=True,
+        local_files_only=local_files_only,
+    )
 
     model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": True}
     if load_in_4bit and device != "cuda":
@@ -144,12 +160,19 @@ def load_qwen_model(model_name, load_in_4bit=False):
 
     if device == "cuda" and has_accelerate:
         model = AutoModelForCausalLM.from_pretrained(
-            model_name, device_map="auto", **model_kwargs
+            resolved_model_name,
+            device_map="auto",
+            local_files_only=local_files_only,
+            **model_kwargs,
         )
     else:
-        model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs).to(device)
+        model = AutoModelForCausalLM.from_pretrained(
+            resolved_model_name,
+            local_files_only=local_files_only,
+            **model_kwargs,
+        ).to(device)
 
-    print("Modele pret :", model_name, "| device:", model_input_device(model))
+    print("Modele pret :", resolved_model_name, "| device:", model_input_device(model))
     return tokenizer, model
 
 
