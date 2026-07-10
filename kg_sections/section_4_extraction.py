@@ -67,6 +67,7 @@ def process_category(
     kg_dir,
     tokenizer,
     model,
+    allow_fallback_ontology=False,
 ):
     category_df = df[df["category_id"] == category_id].reset_index(drop=True)
     if len(category_df) == 0:
@@ -81,6 +82,7 @@ def process_category(
         onto_dir,
         tokenizer,
         model,
+        allow_fallback=allow_fallback_ontology,
     )
     category_prompt = build_extraction_prompt(ontology)
 
@@ -131,6 +133,7 @@ def run_categories(
     kg_dir,
     tokenizer,
     model,
+    allow_fallback_ontology=False,
 ):
     summary = []
 
@@ -150,6 +153,7 @@ def run_categories(
                 kg_dir,
                 tokenizer,
                 model,
+                allow_fallback_ontology=allow_fallback_ontology,
             )
             if result:
                 summary.append(

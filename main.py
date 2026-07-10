@@ -15,14 +15,16 @@ from kg_sections.section_5_postprocess import merge_all_category_graphs
 CSV_PATH = "./amazon_products.csv"
 CATEGORIES_PATH = "./amazon_categories.csv"
 
-MODEL_NAME = "Qwen/Qwen2.5-3B-Instruct"
+MODEL_NAME = "Qwen/Qwen2.5-1.5B-Instruct" #"Qwen/Qwen2.5-3B-Instruct"
 LOAD_IN_4BIT = False
 
 SAMPLE_SIZE = 15
 MAX_PRODUCTS_PER_CAT = 25
 SEED = 42
+ALLOW_FALLBACK_ONTOLOGY = True
 
-CATEGORIES_TO_RUN = [77, 228, 83, 32]
+#CATEGORIES_TO_RUN = [77, 228, 83, 32]
+CATEGORIES_TO_RUN = [77]
 # CATEGORIES_TO_RUN = None # To Run all 
 
 ONTO_DIR = "ontologies"
@@ -53,6 +55,7 @@ def main():
         kg_dir,
         tokenizer,
         model,
+        allow_fallback_ontology=ALLOW_FALLBACK_ONTOLOGY,
     )
     print(summary)
 

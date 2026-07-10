@@ -1,5 +1,7 @@
 import json
+import os
 import re
+from copy import deepcopy
 from pathlib import Path
 
 
@@ -25,6 +27,12 @@ Then ADD category-specific elements:
 
 Output ONLY a JSON object with keys:
 {"category","classes","object_properties","data_properties","controlled_vocab","rules"}
+Keep the JSON compact:
+- maximum 3 classes
+- maximum 8 object_properties
+- maximum 5 data_properties
+- maximum 5 controlled_vocab entries, each with maximum 8 values
+- maximum 6 rules
 No prose, no code fences."""
 
 REQUIRED_KEYS = {
@@ -37,7 +45,49 @@ REQUIRED_KEYS = {
 }
 
 
+def get_best_device(torch):
+    if torch.cuda.is_available():
+        return "cuda"
+
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
+
+    return "cpu"
+
+
+def dtype_for_device(torch, device):
+    if device == "cuda":
+        return torch.bfloat16
+    if device == "mps":
+        return torch.float16
+    return torch.float32
+
+
+def model_input_device(model):
+    model_device = getattr(model, "device", None)
+    if model_device is not None:
+        return model_device
+    return next(model.parameters()).device
+
+
+def deterministic_generation_config(tokenizer, model):
+    generation_config = deepcopy(model.generation_config)
+    generation_config.do_sample = False
+    generation_config.temperature = None
+    generation_config.top_p = None
+    generation_config.top_k = None
+
+    if generation_config.pad_token_id is None:
+        generation_config.pad_token_id = tokenizer.eos_token_id
+    if generation_config.eos_token_id is None:
+        generation_config.eos_token_id = tokenizer.eos_token_id
+
+    return generation_config
+
+
 def load_qwen_model(model_name, load_in_4bit=False):
+    os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -49,10 +99,15 @@ def load_qwen_model(model_name, load_in_4bit=False):
         has_accelerate = False
         print("accelerate absent -> installe accelerate puis redemarre le kernel.")
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = get_best_device(torch)
+    dtype = dtype_for_device(torch, device)
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
 
     model_kwargs = {"trust_remote_code": True, "low_cpu_mem_usage": True}
+    if load_in_4bit and device != "cuda":
+        print("LOAD_IN_4BIT ignore : bitsandbytes 4-bit est reserve a CUDA.")
+        load_in_4bit = False
+
     if load_in_4bit:
         from transformers import BitsAndBytesConfig
 
@@ -63,16 +118,16 @@ def load_qwen_model(model_name, load_in_4bit=False):
             bnb_4bit_use_double_quant=True,
         )
     else:
-        model_kwargs["torch_dtype"] = torch.bfloat16
+        model_kwargs["torch_dtype"] = dtype
 
-    if has_accelerate:
+    if device == "cuda" and has_accelerate:
         model = AutoModelForCausalLM.from_pretrained(
             model_name, device_map="auto", **model_kwargs
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs).to(device)
 
-    print("Modele pret :", model_name, "| device:", model.device)
+    print("Modele pret :", model_name, "| device:", model_input_device(model))
     return tokenizer, model
 
 
@@ -93,8 +148,12 @@ def ask_qwen(prompt, tokenizer, model, max_new_tokens=1000):
             add_generation_prompt=True,
         )
 
-    inputs = tokenizer([text], return_tensors="pt").to(model.device)
-    output = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+    inputs = tokenizer([text], return_tensors="pt").to(model_input_device(model))
+    output = model.generate(
+        **inputs,
+        max_new_tokens=max_new_tokens,
+        generation_config=deterministic_generation_config(tokenizer, model),
+    )
     generated = output[0][inputs.input_ids.shape[1] :]
     return tokenizer.decode(generated, skip_special_tokens=True)
 
@@ -122,10 +181,15 @@ def extract_json(text):
     raise ValueError("JSON non equilibre (tronque -> augmente max_new_tokens)")
 
 
-def design_ontology(category_name, sample_titles, tokenizer, model):
+def design_ontology(category_name, sample_titles, tokenizer, model, max_new_tokens=2200):
     user_prompt = "Category: " + category_name + "\nSample titles:\n"
     user_prompt += "\n".join("- " + title for title in sample_titles)
-    raw = ask_qwen(META_PROMPT + "\n\n" + user_prompt, tokenizer, model, max_new_tokens=1200)
+    raw = ask_qwen(
+        META_PROMPT + "\n\n" + user_prompt,
+        tokenizer,
+        model,
+        max_new_tokens=max_new_tokens,
+    )
     return extract_json(raw)
 
 
@@ -170,7 +234,40 @@ RULES:
 - Output ONLY the JSON object, no prose, no code fences."""
 
 
-def get_ontology(category_id, category_name, titles, onto_dir, tokenizer, model, force=False):
+def fallback_ontology(category_name):
+    return {
+        "category": category_name,
+        "classes": ["Product"],
+        "object_properties": [
+            {"predicate": "HAS_BRAND", "domain": "Product", "range": "Brand"},
+            {"predicate": "HAS_TYPE", "domain": "Product", "range": "ProductType"},
+            {"predicate": "HAS_FEATURE", "domain": "Product", "range": "Feature"},
+            {"predicate": "COMPATIBLE_WITH", "domain": "Product", "range": "CompatibleItem"},
+            {"predicate": "MADE_OF", "domain": "Product", "range": "Material"},
+            {"predicate": "FOR_AUDIENCE", "domain": "Product", "range": "Audience"},
+        ],
+        "data_properties": ["title", "price", "stars"],
+        "controlled_vocab": {},
+        "rules": [
+            "Always create one product from asin, title, price, and stars.",
+            "Extract a brand only when a brand is explicit in the title.",
+            "Extract product type, features, compatibility, material, and audience when explicit.",
+            "Omit absent or uncertain attributes.",
+            "Never create Unknown, Other, or Unbranded nodes.",
+        ],
+    }
+
+
+def get_ontology(
+    category_id,
+    category_name,
+    titles,
+    onto_dir,
+    tokenizer,
+    model,
+    force=False,
+    allow_fallback=False,
+):
     path = Path(onto_dir) / f"onto_{category_id}.json"
     if path.exists() and not force:
         with open(path, encoding="utf-8") as file:
@@ -188,6 +285,12 @@ def get_ontology(category_id, category_name, titles, onto_dir, tokenizer, model,
             last_error = exc
             print(f"  ontologie {category_id} tentative {attempt + 1} echouee: {exc}")
 
-    raise RuntimeError(
-        f"impossible de generer l'ontologie pour {category_id}: {last_error}"
-    )
+    if allow_fallback:
+        print("  utilisation d'une ontologie generique de test")
+        ontology = fallback_ontology(category_name)
+        validate_ontology(ontology)
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump(ontology, file, ensure_ascii=False, indent=2)
+        return ontology
+
+    raise RuntimeError(f"impossible de generer l'ontologie pour {category_id}: {last_error}")
