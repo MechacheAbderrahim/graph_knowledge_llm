@@ -173,6 +173,7 @@ def load_qwen_model(model_name, load_in_4bit=False, offline=False):
         ).to(device)
 
     print("Modele pret :", resolved_model_name, "| device:", model_input_device(model))
+    print("Device map:", getattr(model, "hf_device_map", None))
     return tokenizer, model
 
 
