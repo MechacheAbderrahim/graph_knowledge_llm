@@ -21,10 +21,10 @@ preprocessing:
 
 models:
   global_ontology:
-    name: "Qwen/Qwen2.5-3B-Instruct"
+    name: "Qwen/Qwen2.5-7B-Instruct"
     load_in_4bit: false
   category_ontology:
-    name: "Qwen/Qwen2.5-3B-Instruct"
+    name: "Qwen/Qwen2.5-7B-Instruct"
     load_in_4bit: false
   product_kg:
     name: "Qwen/Qwen2.5-3B-Instruct"
