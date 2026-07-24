@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 
 from kg_sections.section_0_llm import ask_qwen, load_qwen_model
+from kg_sections.section_2_sampling import representative_titles_by_category
 
 
 DEFAULT_ONTOLOGY_LIMITS = {
@@ -48,6 +49,38 @@ Then ADD category-specific elements:
 
 Output ONLY a JSON object with keys:
 {{"category","classes","object_properties","data_properties","controlled_vocab","rules"}}
+Keep the JSON compact:
+- maximum {limits['max_classes']} classes
+- maximum {limits['max_object_properties']} object_properties
+- maximum {limits['max_data_properties']} data_properties
+- maximum {limits['max_controlled_vocab']} controlled_vocab entries, each with maximum {limits['max_vocab_values']} values
+- maximum {limits['max_rules']} rules
+No prose, no code fences."""
+
+
+def build_global_ontology_prompt(ontology_limits=None):
+    limits = normalize_ontology_limits(ontology_limits)
+
+    return f"""You are an ontology designer for a large e-commerce product catalog.
+You receive DIVERSE product title samples from MULTIPLE categories.
+Design ONE compact GLOBAL ontology used as the shared schema for all categories.
+
+Focus ONLY on cross-category concepts that should stay consistent when all category
+knowledge graphs are merged.
+
+Mandatory backbone:
+- Each product node id = "asin:<ASIN>", class = Product or a subclass of Product.
+- All entity node ids use "type:CanonicalSlug" so identical entities merge.
+- Include class Product.
+- Include class Brand and predicate HAS_BRAND (Product -> Brand).
+- Reuse common predicate verbs where they fit: HAS_TYPE, COMPATIBLE_WITH, FOR_AUDIENCE,
+  HAS_FEATURE, MADE_OF, BUNDLES, INSTALLED_AT.
+- OPEN-WORLD: if an attribute is absent, omit it. NEVER create catch-all nodes like
+  Unbranded/Unknown/Other.
+
+Output ONLY a JSON object with keys:
+{{"category","classes","object_properties","data_properties","controlled_vocab","rules"}}
+Use "GLOBAL" as category.
 Keep the JSON compact:
 - maximum {limits['max_classes']} classes
 - maximum {limits['max_object_properties']} object_properties
@@ -108,6 +141,34 @@ def design_ontology(
         deterministic=deterministic,
     )
     return extract_json(raw)
+
+
+def design_global_ontology(
+    category_samples,
+    tokenizer,
+    model,
+    max_new_tokens=2200,
+    ontology_limits=None,
+    deterministic=True,
+):
+    user_prompt = "Global catalog sample:\n"
+    for sample in category_samples:
+        user_prompt += (
+            f"\nCategory {sample['category_id']} ({sample['category_name']}):\n"
+        )
+        user_prompt += "\n".join("- " + title for title in sample["titles"])
+        user_prompt += "\n"
+
+    raw = ask_qwen(
+        build_global_ontology_prompt(ontology_limits) + "\n\n" + user_prompt,
+        tokenizer,
+        model,
+        max_new_tokens=max_new_tokens,
+        deterministic=deterministic,
+    )
+    ontology = extract_json(raw)
+    ontology["category"] = "GLOBAL"
+    return ontology
 
 
 def validate_ontology(ontology):
@@ -173,6 +234,71 @@ def fallback_ontology(category_name):
             "Never create Unknown, Other, or Unbranded nodes.",
         ],
     }
+
+
+def get_global_ontology(
+    categories,
+    df,
+    name_for_category,
+    sample_size,
+    onto_dir,
+    tokenizer,
+    model,
+    force=False,
+    allow_fallback=False,
+    max_new_tokens=2200,
+    ontology_limits=None,
+    deterministic=True,
+    sampling_text_column="title",
+    output_path=None,
+    seed=42,
+):
+    path = Path(output_path) if output_path else Path(onto_dir) / "global_ontology.json"
+    if path.exists() and not force:
+        with open(path, encoding="utf-8") as file:
+            return json.load(file)
+
+    category_samples = representative_titles_by_category(
+        categories,
+        df,
+        name_for_category,
+        sample_size,
+        seed=seed,
+        text_column=sampling_text_column,
+    )
+    if not category_samples:
+        raise ValueError("impossible de generer l'ontologie globale: aucun echantillon")
+
+    last_error = None
+    for attempt in range(2):
+        try:
+            ontology = design_global_ontology(
+                category_samples,
+                tokenizer,
+                model,
+                max_new_tokens=max_new_tokens,
+                ontology_limits=ontology_limits,
+                deterministic=deterministic,
+            )
+            validate_ontology(ontology)
+            path.parent.mkdir(exist_ok=True)
+            with open(path, "w", encoding="utf-8") as file:
+                json.dump(ontology, file, ensure_ascii=False, indent=2)
+            return ontology
+        except Exception as exc:
+            last_error = exc
+            print(f"  ontologie globale tentative {attempt + 1} echouee: {exc}")
+
+    if allow_fallback:
+        print("  utilisation d'une ontologie globale generique de test")
+        ontology = fallback_ontology("GLOBAL")
+        validate_ontology(ontology)
+        path.parent.mkdir(exist_ok=True)
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump(ontology, file, ensure_ascii=False, indent=2)
+        return ontology
+
+    raise RuntimeError(f"impossible de generer l'ontologie globale: {last_error}")
 
 
 def get_ontology(

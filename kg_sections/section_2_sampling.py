@@ -24,3 +24,34 @@ def representative_titles(category_df, sample_size, seed=42, text_column="title"
         selected_titles.append(titles[row_indexes[similarities.argmax()]])
 
     return selected_titles
+
+
+def representative_titles_by_category(
+    categories,
+    df,
+    name_for_category,
+    sample_size,
+    seed=42,
+    text_column="title",
+):
+    samples = []
+
+    for category_id in categories:
+        category_df = df[df["category_id"] == category_id].reset_index(drop=True)
+        if len(category_df) == 0:
+            continue
+
+        samples.append(
+            {
+                "category_id": int(category_id),
+                "category_name": name_for_category(category_id),
+                "titles": representative_titles(
+                    category_df,
+                    sample_size,
+                    seed=seed,
+                    text_column=text_column,
+                ),
+            }
+        )
+
+    return samples

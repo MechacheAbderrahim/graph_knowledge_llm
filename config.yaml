@@ -2,6 +2,7 @@ paths:
   products_csv: "./amazon_products.csv"
   categories_csv: "./amazon_categories.csv"
   ontology_dir: "ontologies"
+  global_ontology_path: "ontologies/global_ontology.json"
   kg_dir: "kg"
   global_kg_path: "kg_global.json"
 
