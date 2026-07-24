@@ -24,8 +24,19 @@ def normalize_ontology_limits(ontology_limits=None):
     return limits
 
 
-def build_meta_prompt(ontology_limits=None):
+def build_meta_prompt(ontology_limits=None, global_ontology=None):
     limits = normalize_ontology_limits(ontology_limits)
+    global_block = ""
+    if global_ontology:
+        global_block = f"""
+
+GLOBAL_ONTOLOGY to follow:
+{json.dumps(global_ontology, ensure_ascii=False, separators=(",", ":"))}
+
+You MUST make the category ontology compatible with GLOBAL_ONTOLOGY:
+- reuse global class and predicate names when they fit;
+- add category-specific classes/properties only when the global ontology is too generic;
+- do not create synonyms for existing global concepts."""
 
     return f"""You are an ontology designer for e-commerce product knowledge graphs.
 You receive a category name and a DIVERSE sample of product titles from ONE category.
@@ -39,6 +50,7 @@ You MUST reuse this shared backbone (do NOT rename it) so all categories stay me
   HAS_FEATURE, MADE_OF, BUNDLES, INSTALLED_AT.
 - OPEN-WORLD: if an attribute is absent from a title, omit it. NEVER create catch-all
   nodes like Unbranded/Unknown/Other -> omit the edge instead.
+{global_block}
 
 Then ADD category-specific elements:
 - 1-{limits['max_classes']} Product subclasses ONLY if the category mixes device vs accessory; else one class.
@@ -130,11 +142,12 @@ def design_ontology(
     max_new_tokens=2200,
     ontology_limits=None,
     deterministic=True,
+    global_ontology=None,
 ):
     user_prompt = "Category: " + category_name + "\nSample titles:\n"
     user_prompt += "\n".join("- " + title for title in sample_titles)
     raw = ask_qwen(
-        build_meta_prompt(ontology_limits) + "\n\n" + user_prompt,
+        build_meta_prompt(ontology_limits, global_ontology=global_ontology) + "\n\n" + user_prompt,
         tokenizer,
         model,
         max_new_tokens=max_new_tokens,
@@ -182,10 +195,18 @@ def validate_ontology(ontology):
     return True
 
 
-def build_extraction_prompt(ontology):
+def build_extraction_prompt(ontology, global_ontology=None):
+    global_block = ""
+    if global_ontology:
+        global_block = f"""
+GLOBAL ONTOLOGY:
+{json.dumps(global_ontology, ensure_ascii=False, indent=2)}
+"""
+
     return f"""You are a KG extraction engine for the "{ontology['category']}" category.
 
-ONTOLOGY:
+{global_block}
+CATEGORY ONTOLOGY:
 {json.dumps(ontology, ensure_ascii=False, indent=2)}
 
 OUTPUT FORMAT - return EXACTLY this shape, with these three keys:
@@ -207,7 +228,8 @@ Example:
 RULES:
 - The product goes in "product", NOT in "nodes".
 - "nodes" = ONLY entities (brand, type, resolution...), each id = "type:Slug".
-- "edges" link the product to entities using ONLY the ontology predicates.
+- "edges" link the product to entities using ONLY the global/category ontology predicates.
+- Follow the global ontology first, then use the category ontology for specific concepts.
 - Omit anything absent from the title. NEVER output Unbranded/Unknown/Other.
 - Output ONLY the JSON object, no prose, no code fences."""
 
@@ -313,6 +335,7 @@ def get_ontology(
     max_new_tokens=2200,
     ontology_limits=None,
     deterministic=True,
+    global_ontology=None,
 ):
     path = Path(onto_dir) / f"onto_{category_id}.json"
     if path.exists() and not force:
@@ -330,6 +353,7 @@ def get_ontology(
                 max_new_tokens=max_new_tokens,
                 ontology_limits=ontology_limits,
                 deterministic=deterministic,
+                global_ontology=global_ontology,
             )
             validate_ontology(ontology)
             with open(path, "w", encoding="utf-8") as file:

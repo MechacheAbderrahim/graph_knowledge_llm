@@ -101,6 +101,7 @@ def main():
         ontology_limits=ontology_limits,
         deterministic_generation=generation_config.get("deterministic", True),
         sampling_text_column=sampling_text_column,
+        global_ontology=global_ontology,
     )
     print(summary)
 
