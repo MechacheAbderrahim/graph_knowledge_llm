@@ -8,16 +8,39 @@ paths:
 execution:
   offline: true
 
-model:
-  name: "Qwen/Qwen2.5-3B-Instruct"
-  load_in_4bit: false
+columns:
+  direct: ["asin", "category_id", "price", "stars"]
+  llm: ["title"]
+
+preprocessing:
+  enabled: true
+  keep_raw_columns: true
+  normalized_suffix: "_normalized"
+  text_columns: ["title"]
+
+models:
+  global_ontology:
+    name: "Qwen/Qwen2.5-3B-Instruct"
+    load_in_4bit: false
+  category_ontology:
+    name: "Qwen/Qwen2.5-3B-Instruct"
+    load_in_4bit: false
+  product_kg:
+    name: "Qwen/Qwen2.5-3B-Instruct"
+    load_in_4bit: false
 
 run:
   categories: [77, 228, 83, 32]
-  sample_size: 15
   max_products_per_category: 25
   seed: 42
   allow_fallback_ontology: false
+
+sampling:
+  k_sample_global_onto: 3
+  k_sample_category_onto: 15
+
+extraction:
+  batch_size: 1
 
 ontology:
   max_new_tokens: 3000
@@ -37,16 +60,39 @@ generation:
 test:
   enabled: true
 
-  model:
-    name: "Qwen/Qwen2.5-0.5B-Instruct"
-    load_in_4bit: false
+  columns:
+    direct: ["asin", "category_id", "price", "stars"]
+    llm: ["title"]
+
+  preprocessing:
+    enabled: true
+    keep_raw_columns: true
+    normalized_suffix: "_normalized"
+    text_columns: ["title"]
+
+  models:
+    global_ontology:
+      name: "Qwen/Qwen2.5-0.5B-Instruct"
+      load_in_4bit: false
+    category_ontology:
+      name: "Qwen/Qwen2.5-0.5B-Instruct"
+      load_in_4bit: false
+    product_kg:
+      name: "Qwen/Qwen2.5-0.5B-Instruct"
+      load_in_4bit: false
 
   run:
     categories: [77]
-    sample_size: 3
     max_products_per_category: 2
     seed: 42
     allow_fallback_ontology: true
+
+  sampling:
+    k_sample_global_onto: 1
+    k_sample_category_onto: 3
+
+  extraction:
+    batch_size: 1
 
   ontology:
     max_new_tokens: 1200

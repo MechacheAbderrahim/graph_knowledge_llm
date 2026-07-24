@@ -3,9 +3,9 @@ import itertools
 import json
 from pathlib import Path
 
+from kg_sections.section_0_llm import ask_qwen
 from kg_sections.section_2_sampling import representative_titles
 from kg_sections.section_3_ontology import (
-    ask_qwen,
     build_extraction_prompt,
     extract_json,
     get_ontology,

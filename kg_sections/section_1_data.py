@@ -5,16 +5,24 @@ import pandas as pd
 import yaml
 
 
+DEFAULT_COLUMNS = {
+    "direct": ["asin", "category_id", "price", "stars"],
+    "llm": ["title"],
+}
+
+
 def load_config(config_path="config.yaml"):
     with open(config_path, encoding="utf-8") as file:
         config = yaml.safe_load(file) or {}
 
     validate_config(config)
-    return select_active_config(config)
+    active_config = select_active_config(config)
+    validate_active_config(active_config)
+    return active_config
 
 
 def validate_config(config):
-    required_sections = ["paths", "model", "run", "ontology", "ontology_limits", "test"]
+    required_sections = ["paths", "models", "run", "ontology", "ontology_limits", "test"]
     missing = [section for section in required_sections if section not in config]
     if missing:
         raise ValueError(f"sections manquantes dans config.yaml: {missing}")
@@ -23,13 +31,36 @@ def validate_config(config):
     if "enabled" not in test:
         raise ValueError("config.yaml doit contenir test.enabled")
 
+    validate_active_config(config)
+
+
+def validate_active_config(config):
+    columns = normalize_columns_config(config.get("columns"))
+    if "title" not in columns["llm"]:
+        raise ValueError("pour l'instant, columns.llm doit contenir title")
+
+    required_models = ["global_ontology", "category_ontology", "product_kg"]
+    missing_models = [role for role in required_models if role not in config.get("models", {})]
+    if missing_models:
+        raise ValueError(f"models incomplet dans config.yaml: {missing_models}")
+
 
 def select_active_config(config):
     active = deepcopy(config)
     test = config.get("test", {})
 
     if test.get("enabled", False):
-        for section in ["model", "run", "ontology", "ontology_limits", "generation"]:
+        for section in [
+            "models",
+            "run",
+            "sampling",
+            "ontology",
+            "ontology_limits",
+            "generation",
+            "extraction",
+            "columns",
+            "preprocessing",
+        ]:
             if section in test:
                 active[section] = deepcopy(test[section])
         active["_mode"] = "test"
@@ -37,6 +68,17 @@ def select_active_config(config):
         active["_mode"] = "main"
 
     return active
+
+
+def normalize_columns_config(columns_config=None):
+    config = columns_config or {}
+    direct_columns = list(config.get("direct", DEFAULT_COLUMNS["direct"]))
+    llm_columns = list(config.get("llm", DEFAULT_COLUMNS["llm"]))
+
+    return {
+        "direct": direct_columns,
+        "llm": llm_columns,
+    }
 
 
 def make_output_dirs(onto_dir="ontologies", kg_dir="kg"):
@@ -77,9 +119,15 @@ def check_gpu():
         print("Pas de GPU CUDA/MPS - execution sur CPU (tres lent)")
 
 
-def load_products(csv_path):
-    useful_columns = ["asin", "title", "stars", "price", "category_id"]
+def load_products(csv_path, columns_config=None):
+    columns = normalize_columns_config(columns_config)
+    useful_columns = set(columns["direct"]) | set(columns["llm"]) | {"asin", "title", "category_id"}
     df = pd.read_csv(csv_path, usecols=lambda c: c in useful_columns)
+
+    missing_required = [column for column in ["asin", "title", "category_id"] if column not in df]
+    if missing_required:
+        raise ValueError(f"colonnes obligatoires manquantes dans products_csv: {missing_required}")
+
     return df.dropna(subset=["title"]).reset_index(drop=True)
 
 

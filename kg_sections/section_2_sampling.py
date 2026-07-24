@@ -4,9 +4,9 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 
-def representative_titles(category_df, sample_size, seed=42):
-    titles = category_df["title"].tolist()
-    sample_size = min(sample_size, category_df["title"].nunique())
+def representative_titles(category_df, sample_size, seed=42, text_column="title"):
+    titles = category_df[text_column].tolist()
+    sample_size = min(sample_size, category_df[text_column].nunique())
 
     if sample_size < 2:
         return titles[: max(sample_size, 1)]

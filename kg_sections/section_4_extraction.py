@@ -4,9 +4,9 @@ from pathlib import Path
 import pandas as pd
 from tqdm.auto import tqdm
 
+from kg_sections.section_0_llm import ask_qwen
 from kg_sections.section_2_sampling import representative_titles
 from kg_sections.section_3_ontology import (
-    ask_qwen,
     build_extraction_prompt,
     extract_json,
     get_ontology,
@@ -23,12 +23,21 @@ Output ONLY the JSON object (product/nodes/edges), nothing else:
 
 
 def product_from_row(row):
-    return {
+    product = {
         "asin": row["asin"],
         "title": row["title"],
-        "price": float(row["price"]),
-        "stars": float(row["stars"]),
     }
+
+    if "title_normalized" in row:
+        product["title_normalized"] = row["title_normalized"]
+    if "title_raw" in row:
+        product["title_raw"] = row["title_raw"]
+    if "price" in row and pd.notna(row["price"]):
+        product["price"] = float(row["price"])
+    if "stars" in row and pd.notna(row["stars"]):
+        product["stars"] = float(row["stars"])
+
+    return product
 
 
 def merge_fragment(fragment, asin, nodes, edges):
@@ -65,27 +74,35 @@ def process_category(
     seed,
     onto_dir,
     kg_dir,
-    tokenizer,
-    model,
+    ontology_tokenizer,
+    ontology_model,
+    product_tokenizer,
+    product_model,
     allow_fallback_ontology=False,
     force_regenerate_ontology=False,
     ontology_max_new_tokens=2200,
     ontology_limits=None,
     deterministic_generation=True,
+    sampling_text_column="title",
 ):
     category_df = df[df["category_id"] == category_id].reset_index(drop=True)
     if len(category_df) == 0:
         print("  (aucun produit)")
         return None
 
-    titles = representative_titles(category_df, sample_size, seed=seed)
+    titles = representative_titles(
+        category_df,
+        sample_size,
+        seed=seed,
+        text_column=sampling_text_column,
+    )
     ontology = get_ontology(
         category_id,
         category_name,
         titles,
         onto_dir,
-        tokenizer,
-        model,
+        ontology_tokenizer,
+        ontology_model,
         force=force_regenerate_ontology,
         allow_fallback=allow_fallback_ontology,
         max_new_tokens=ontology_max_new_tokens,
@@ -103,8 +120,8 @@ def process_category(
         product = product_from_row(row)
         raw = ask_qwen(
             generate_product_prompt(category_prompt, product),
-            tokenizer,
-            model,
+            product_tokenizer,
+            product_model,
             deterministic=deterministic_generation,
         )
 
@@ -144,13 +161,16 @@ def run_categories(
     seed,
     onto_dir,
     kg_dir,
-    tokenizer,
-    model,
+    ontology_tokenizer,
+    ontology_model,
+    product_tokenizer,
+    product_model,
     allow_fallback_ontology=False,
     force_regenerate_ontology=False,
     ontology_max_new_tokens=2200,
     ontology_limits=None,
     deterministic_generation=True,
+    sampling_text_column="title",
 ):
     summary = []
 
@@ -168,13 +188,16 @@ def run_categories(
                 seed,
                 onto_dir,
                 kg_dir,
-                tokenizer,
-                model,
+                ontology_tokenizer,
+                ontology_model,
+                product_tokenizer,
+                product_model,
                 allow_fallback_ontology=allow_fallback_ontology,
                 force_regenerate_ontology=force_regenerate_ontology,
                 ontology_max_new_tokens=ontology_max_new_tokens,
                 ontology_limits=ontology_limits,
                 deterministic_generation=deterministic_generation,
+                sampling_text_column=sampling_text_column,
             )
             if result:
                 summary.append(
