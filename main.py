@@ -106,6 +106,7 @@ def main():
         batch_size=extraction_config.get("batch_size", 1),
         product_max_new_tokens=extraction_config.get("max_new_tokens", 1000),
         columns_config=columns_config,
+        preprocessing_config=preprocessing_config,
     )
     print(summary)
 
