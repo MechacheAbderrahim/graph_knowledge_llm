@@ -29,6 +29,7 @@ def main():
     ontology_limits = config["ontology_limits"]
     generation_config = config.get("generation", {})
     execution_config = config.get("execution", {})
+    extraction_config = config.get("extraction", {})
     columns_config = normalize_columns_config(config.get("columns"))
     preprocessing_config = config.get("preprocessing", {})
 
@@ -102,6 +103,8 @@ def main():
         deterministic_generation=generation_config.get("deterministic", True),
         sampling_text_column=sampling_text_column,
         global_ontology=global_ontology,
+        batch_size=extraction_config.get("batch_size", 1),
+        product_max_new_tokens=extraction_config.get("max_new_tokens", 1000),
     )
     print(summary)
 

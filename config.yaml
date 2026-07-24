@@ -42,6 +42,7 @@ sampling:
 
 extraction:
   batch_size: 1
+  max_new_tokens: 1000
 
 ontology:
   max_new_tokens: 3000
@@ -94,6 +95,7 @@ test:
 
   extraction:
     batch_size: 1
+    max_new_tokens: 1000
 
   ontology:
     max_new_tokens: 1200

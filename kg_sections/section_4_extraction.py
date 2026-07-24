@@ -17,8 +17,35 @@ def generate_product_prompt(category_prompt, product):
     return f"""{category_prompt}
 
 Now extract the knowledge graph for THIS product.
-Output ONLY the JSON object (product/nodes/edges), nothing else:
+Return ONLY one JSON fragment with keys: product, nodes, edges.
+
+INPUT PRODUCT:
 {json.dumps(product, ensure_ascii=False)}
+"""
+
+
+def generate_product_batch_prompt(category_prompt, products):
+    return f"""{category_prompt}
+
+Now extract the knowledge graph for this BATCH of products.
+Return ONLY this JSON shape:
+{{
+  "fragments": [
+    {{
+      "product": {{"id": "asin:<ASIN>", "class": "<class>", "data_properties": {{...}}}},
+      "nodes": [{{"id": "type:CanonicalSlug", "type": "<EntityType>", "label": "..."}}],
+      "edges": [{{"from": "asin:<ASIN>", "rel": "<PREDICATE>", "to": "type:CanonicalSlug"}}]
+    }}
+  ]
+}}
+
+Rules:
+- Return exactly one fragment per input product.
+- Do not merge different products into one product object.
+- Output ONLY the JSON object, no prose, no code fences.
+
+INPUT PRODUCTS:
+{json.dumps(products, ensure_ascii=False)}
 """
 
 
@@ -65,6 +92,48 @@ def merge_fragment(fragment, asin, nodes, edges):
             edges[(edge["from"], edge["rel"], edge["to"])] = edge
 
 
+def fragments_from_response(parsed):
+    if "fragments" in parsed:
+        fragments = parsed["fragments"]
+        if not isinstance(fragments, list):
+            raise ValueError("cle 'fragments' presente mais ce n'est pas une liste")
+        return fragments
+
+    if "product" in parsed:
+        return [parsed]
+
+    raise ValueError(f"format batch invalide (cles: {list(parsed)})")
+
+
+def asin_from_fragment(fragment, fallback_asin):
+    product_id = fragment.get("product", {}).get("id", "")
+    if isinstance(product_id, str) and product_id.startswith("asin:"):
+        return product_id.split(":", 1)[1]
+    return fallback_asin
+
+
+def merge_response(parsed, batch_asins, nodes, edges):
+    fragments = fragments_from_response(parsed)
+    if len(fragments) != len(batch_asins):
+        raise ValueError(
+            f"nombre de fragments inattendu: {len(fragments)} pour {len(batch_asins)} produit(s)"
+        )
+
+    for index, fragment in enumerate(fragments):
+        merge_fragment(
+            fragment,
+            asin_from_fragment(fragment, batch_asins[index]),
+            nodes,
+            edges,
+        )
+
+
+def dataframe_batches(df, batch_size):
+    batch_size = max(int(batch_size or 1), 1)
+    for start in range(0, len(df), batch_size):
+        yield df.iloc[start : start + batch_size]
+
+
 def process_category(
     category_id,
     df,
@@ -85,6 +154,8 @@ def process_category(
     deterministic_generation=True,
     sampling_text_column="title",
     global_ontology=None,
+    batch_size=1,
+    product_max_new_tokens=1000,
 ):
     category_df = df[df["category_id"] == category_id].reset_index(drop=True)
     if len(category_df) == 0:
@@ -118,19 +189,32 @@ def process_category(
     edges = {}
     failures = []
 
-    for _, row in tqdm(work.iterrows(), total=len(work), desc=f"cat {category_id}", leave=False):
-        product = product_from_row(row)
+    total_batches = (len(work) + max(int(batch_size or 1), 1) - 1) // max(int(batch_size or 1), 1)
+    for batch_df in tqdm(
+        dataframe_batches(work, batch_size),
+        total=total_batches,
+        desc=f"cat {category_id}",
+        leave=False,
+    ):
+        products = [product_from_row(row) for _, row in batch_df.iterrows()]
+        batch_asins = [product["asin"] for product in products]
+        prompt = (
+            generate_product_prompt(category_prompt, products[0])
+            if len(products) == 1
+            else generate_product_batch_prompt(category_prompt, products)
+        )
         raw = ask_qwen(
-            generate_product_prompt(category_prompt, product),
+            prompt,
             product_tokenizer,
             product_model,
+            max_new_tokens=product_max_new_tokens,
             deterministic=deterministic_generation,
         )
 
         try:
-            merge_fragment(extract_json(raw), row["asin"], nodes, edges)
+            merge_response(extract_json(raw), batch_asins, nodes, edges)
         except Exception as exc:
-            failures.append({"asin": row["asin"], "error": str(exc), "raw": raw[:300]})
+            failures.append({"asin": ",".join(batch_asins), "error": str(exc), "raw": raw[:300]})
 
     kg = {
         "category_id": int(category_id),
@@ -174,6 +258,8 @@ def run_categories(
     deterministic_generation=True,
     sampling_text_column="title",
     global_ontology=None,
+    batch_size=1,
+    product_max_new_tokens=1000,
 ):
     summary = []
 
@@ -202,6 +288,8 @@ def run_categories(
                 deterministic_generation=deterministic_generation,
                 sampling_text_column=sampling_text_column,
                 global_ontology=global_ontology,
+                batch_size=batch_size,
+                product_max_new_tokens=product_max_new_tokens,
             )
             if result:
                 summary.append(

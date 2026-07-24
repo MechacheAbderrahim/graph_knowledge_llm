@@ -209,7 +209,7 @@ GLOBAL ONTOLOGY:
 CATEGORY ONTOLOGY:
 {json.dumps(ontology, ensure_ascii=False, indent=2)}
 
-OUTPUT FORMAT - return EXACTLY this shape, with these three keys:
+FRAGMENT FORMAT:
 {{
   "product": {{"id": "asin:<ASIN>", "class": "<a class from the ontology>",
                "data_properties": {{"title": "...", "price": 0.0, "stars": 0.0}}}},
@@ -231,7 +231,7 @@ RULES:
 - "edges" link the product to entities using ONLY the global/category ontology predicates.
 - Follow the global ontology first, then use the category ontology for specific concepts.
 - Omit anything absent from the title. NEVER output Unbranded/Unknown/Other.
-- Output ONLY the JSON object, no prose, no code fences."""
+- Output ONLY valid JSON, no prose, no code fences."""
 
 
 def fallback_ontology(category_name):
