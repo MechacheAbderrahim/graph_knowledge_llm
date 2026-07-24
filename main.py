@@ -105,6 +105,7 @@ def main():
         global_ontology=global_ontology,
         batch_size=extraction_config.get("batch_size", 1),
         product_max_new_tokens=extraction_config.get("max_new_tokens", 1000),
+        columns_config=columns_config,
     )
     print(summary)
 

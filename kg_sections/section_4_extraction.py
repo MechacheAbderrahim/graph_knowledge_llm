@@ -156,6 +156,7 @@ def process_category(
     global_ontology=None,
     batch_size=1,
     product_max_new_tokens=1000,
+    columns_config=None,
 ):
     category_df = df[df["category_id"] == category_id].reset_index(drop=True)
     if len(category_df) == 0:
@@ -182,7 +183,11 @@ def process_category(
         deterministic=deterministic_generation,
         global_ontology=global_ontology,
     )
-    category_prompt = build_extraction_prompt(ontology, global_ontology=global_ontology)
+    category_prompt = build_extraction_prompt(
+        ontology,
+        global_ontology=global_ontology,
+        columns_config=columns_config,
+    )
 
     work = category_df if max_products_per_cat is None else category_df.head(max_products_per_cat)
     nodes = {}
@@ -260,6 +265,7 @@ def run_categories(
     global_ontology=None,
     batch_size=1,
     product_max_new_tokens=1000,
+    columns_config=None,
 ):
     summary = []
 
@@ -290,6 +296,7 @@ def run_categories(
                 global_ontology=global_ontology,
                 batch_size=batch_size,
                 product_max_new_tokens=product_max_new_tokens,
+                columns_config=columns_config,
             )
             if result:
                 summary.append(

@@ -195,7 +195,23 @@ def validate_ontology(ontology):
     return True
 
 
-def build_extraction_prompt(ontology, global_ontology=None):
+def format_columns_for_prompt(columns_config=None):
+    columns_config = columns_config or {}
+    direct_columns = columns_config.get("direct", [])
+    llm_columns = columns_config.get("llm", [])
+
+    return f"""COLUMN CONFIG:
+- direct_columns: {json.dumps(direct_columns, ensure_ascii=False)}
+- llm_columns: {json.dumps(llm_columns, ensure_ascii=False)}
+
+Column rules:
+- direct_columns are factual input values. Copy them only when present; never infer them.
+- llm_columns are the only fields to interpret semantically for entities and relations.
+- If both raw and normalized versions exist, use normalized text for canonical ids and raw text for labels/data.
+- Do not create entities from missing, empty, unknown, or uncertain values."""
+
+
+def build_extraction_prompt(ontology, global_ontology=None, columns_config=None):
     global_block = ""
     if global_ontology:
         global_block = f"""
@@ -208,6 +224,8 @@ GLOBAL ONTOLOGY:
 {global_block}
 CATEGORY ONTOLOGY:
 {json.dumps(ontology, ensure_ascii=False, indent=2)}
+
+{format_columns_for_prompt(columns_config)}
 
 FRAGMENT FORMAT:
 {{
@@ -226,11 +244,13 @@ Example:
            {{"from": "asin:B000", "rel": "HAS_RESOLUTION", "to": "resolution:1080p_FHD"}}]}}
 
 RULES:
+- Follow the rules listed in GLOBAL ONTOLOGY and CATEGORY ONTOLOGY.
+- Use the global ontology first for shared concepts, then the category ontology for specific concepts.
 - The product goes in "product", NOT in "nodes".
 - "nodes" = ONLY entities (brand, type, resolution...), each id = "type:Slug".
 - "edges" link the product to entities using ONLY the global/category ontology predicates.
-- Follow the global ontology first, then use the category ontology for specific concepts.
 - Omit anything absent from the title. NEVER output Unbranded/Unknown/Other.
+- Do not invent values for direct_columns or llm_columns.
 - Output ONLY valid JSON, no prose, no code fences."""
 
 
