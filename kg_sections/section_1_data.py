@@ -58,6 +58,7 @@ def select_active_config(config):
             "ontology_limits",
             "generation",
             "extraction",
+            "resume",
             "columns",
             "preprocessing",
         ]:

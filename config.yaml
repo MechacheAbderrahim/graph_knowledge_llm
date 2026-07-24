@@ -44,6 +44,11 @@ extraction:
   batch_size: 1
   max_new_tokens: 1000
 
+resume:
+  skip_existing_kg: true
+  summary_path: "outputs/run_summary.csv"
+  failures_path: "outputs/run_failures.json"
+
 ontology:
   max_new_tokens: 3000
   force_regenerate: false
@@ -96,6 +101,11 @@ test:
   extraction:
     batch_size: 1
     max_new_tokens: 1000
+
+  resume:
+    skip_existing_kg: false
+    summary_path: "outputs/test_run_summary.csv"
+    failures_path: "outputs/test_run_failures.json"
 
   ontology:
     max_new_tokens: 1200

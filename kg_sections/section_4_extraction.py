@@ -274,6 +274,51 @@ def dataframe_batches(df, batch_size):
         yield df.iloc[start : start + batch_size]
 
 
+def category_kg_path(kg_dir, category_id):
+    return Path(kg_dir) / f"kg_category_{category_id}.json"
+
+
+def validate_kg(kg):
+    required = {"category_id", "category_name", "nodes", "edges"}
+    missing = required - set(kg)
+    if missing:
+        raise ValueError(f"KG invalide, cles manquantes: {missing}")
+    if not isinstance(kg["nodes"], list) or not isinstance(kg["edges"], list):
+        raise ValueError("KG invalide, nodes/edges doivent etre des listes")
+    return True
+
+
+def summarize_existing_kg(kg_dir, category_id, category_name):
+    path = category_kg_path(kg_dir, category_id)
+    with open(path, encoding="utf-8") as file:
+        kg = json.load(file)
+
+    validate_kg(kg)
+    products = sum(1 for node in kg["nodes"] if node.get("type") == "Product")
+    return {
+        "category_id": category_id,
+        "name": category_name,
+        "products": products,
+        "nodes": len(kg["nodes"]),
+        "edges": len(kg["edges"]),
+        "failures": 0,
+        "status": "skipped_existing",
+    }
+
+
+def write_progress_logs(summary, failure_records, summary_path=None, failures_path=None):
+    if summary_path:
+        path = Path(summary_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(summary).to_csv(path, index=False)
+
+    if failures_path:
+        path = Path(failures_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump(failure_records, file, ensure_ascii=False, indent=2)
+
+
 def process_category(
     category_id,
     df,
@@ -393,8 +438,9 @@ def process_category(
         "nodes": list(nodes.values()),
         "edges": list(edges.values()),
     }
+    validate_kg(kg)
 
-    path = Path(kg_dir) / f"kg_category_{category_id}.json"
+    path = category_kg_path(kg_dir, category_id)
     with open(path, "w", encoding="utf-8") as file:
         json.dump(kg, file, ensure_ascii=False, indent=2)
 
@@ -406,6 +452,7 @@ def process_category(
         "edges": len(kg["edges"]),
         "failures": len(failures),
         "failures_detail": failures,
+        "status": "processed",
     }
 
 
@@ -433,14 +480,31 @@ def run_categories(
     product_max_new_tokens=1000,
     columns_config=None,
     preprocessing_config=None,
+    skip_existing_kg=False,
+    summary_path=None,
+    failures_path=None,
 ):
     summary = []
+    failure_records = []
 
     for category_id in categories:
         category_name = name_for_category(category_id)
         print(f"\n=== Categorie {category_id} ({category_name}) ===")
 
         try:
+            if skip_existing_kg and category_kg_path(kg_dir, category_id).exists():
+                try:
+                    result = summarize_existing_kg(kg_dir, category_id, category_name)
+                    summary.append(result)
+                    print(
+                        f"  -> KG existant conserve : {result['nodes']} noeuds, "
+                        f"{result['edges']} aretes"
+                    )
+                    write_progress_logs(summary, failure_records, summary_path, failures_path)
+                    continue
+                except Exception as exc:
+                    print("  KG existant invalide, regeneration:", exc)
+
             result = process_category(
                 category_id,
                 df,
@@ -467,9 +531,7 @@ def run_categories(
                 preprocessing_config=preprocessing_config,
             )
             if result:
-                summary.append(
-                    {key: value for key, value in result.items() if key != "failures_detail"}
-                )
+                summary.append({key: value for key, value in result.items() if key != "failures_detail"})
                 print(
                     f"  -> {result['nodes']} noeuds, "
                     f"{result['edges']} aretes, "
@@ -477,7 +539,34 @@ def run_categories(
                 )
                 if result["failures"]:
                     print("     1er echec:", result["failures_detail"][0]["error"])
+                    failure_records.append(
+                        {
+                            "category_id": int(category_id),
+                            "category_name": category_name,
+                            "failures": result["failures_detail"],
+                        }
+                    )
+                write_progress_logs(summary, failure_records, summary_path, failures_path)
         except Exception as exc:
             print("  ERREUR categorie:", exc)
+            summary.append(
+                {
+                    "category_id": int(category_id),
+                    "name": category_name,
+                    "products": 0,
+                    "nodes": 0,
+                    "edges": 0,
+                    "failures": 1,
+                    "status": "error",
+                }
+            )
+            failure_records.append(
+                {
+                    "category_id": int(category_id),
+                    "category_name": category_name,
+                    "error": str(exc),
+                }
+            )
+            write_progress_logs(summary, failure_records, summary_path, failures_path)
 
     return pd.DataFrame(summary)

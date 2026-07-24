@@ -30,6 +30,7 @@ def main():
     generation_config = config.get("generation", {})
     execution_config = config.get("execution", {})
     extraction_config = config.get("extraction", {})
+    resume_config = config.get("resume", {})
     columns_config = normalize_columns_config(config.get("columns"))
     preprocessing_config = config.get("preprocessing", {})
 
@@ -107,6 +108,9 @@ def main():
         product_max_new_tokens=extraction_config.get("max_new_tokens", 1000),
         columns_config=columns_config,
         preprocessing_config=preprocessing_config,
+        skip_existing_kg=resume_config.get("skip_existing_kg", False),
+        summary_path=resume_config.get("summary_path"),
+        failures_path=resume_config.get("failures_path"),
     )
     print(summary)
 
